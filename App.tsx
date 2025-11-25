@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useForm } from 'react-hook-form';
@@ -13,7 +12,7 @@ import { io, Socket } from 'socket.io-client';
 // --- WebRTC Configuration ---
 const RTC_CONFIG = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }, // Google's public STUN server
+    { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ]
 };
@@ -29,6 +28,7 @@ class WebRTCService {
   private onDisconnect: () => void;
   private onConnect: () => void;
   private onError: (msg: string) => void;
+  private onEmoji: (emoji: string) => void;
 
   constructor(
     localStream: MediaStream,
@@ -36,7 +36,8 @@ class WebRTCService {
     onRemoteStream: (stream: MediaStream) => void,
     onDisconnect: () => void,
     onConnect: () => void,
-    onError: (msg: string) => void
+    onError: (msg: string) => void,
+    onEmoji: (emoji: string) => void
   ) {
     this.localStream = localStream;
     this.onMessage = onMessage;
@@ -44,16 +45,14 @@ class WebRTCService {
     this.onDisconnect = onDisconnect;
     this.onConnect = onConnect;
     this.onError = onError;
+    this.onEmoji = onEmoji;
 
-    // Connect to Backend
-    // CRITICAL: In Netlify, set VITE_BACKEND_URL env var to your Render URL
-    // We use optional chaining ?. to prevent crash if import.meta.env is undefined
     const BACKEND_URL = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:3001';
     
     console.log(`%c[Signaling] Connecting to: ${BACKEND_URL}`, 'color: #3b82f6; font-weight: bold;');
     
     this.socket = io(BACKEND_URL, {
-        transports: ['websocket', 'polling'], // Try websocket first, fallback to polling
+        transports: ['websocket', 'polling'],
         reconnectionAttempts: 5
     });
 
@@ -70,7 +69,6 @@ class WebRTCService {
         this.onError(`Connection failed: ${err.message}. Check console.`);
     });
 
-    // 1. Match Found -> Start WebRTC Negotiation
     this.socket.on('match-found', async ({ initiator }: { initiator: boolean }) => {
       console.log("Match found! Am I initiator?", initiator);
       this.createPeerConnection();
@@ -86,7 +84,6 @@ class WebRTCService {
       }
     });
 
-    // 2. Handle Signaling Data (Offer/Answer/ICE)
     this.socket.on('signal', async (data: { type: string, payload: any }) => {
       if (!this.peerConnection) this.createPeerConnection();
       const pc = this.peerConnection!;
@@ -115,6 +112,10 @@ class WebRTCService {
       this.onMessage(text);
     });
 
+    this.socket.on('emoji', (emoji: string) => {
+      this.onEmoji(emoji);
+    });
+
     this.socket.on('peer-disconnected', () => {
       this.handleCleanup();
       this.onDisconnect();
@@ -126,24 +127,20 @@ class WebRTCService {
 
     this.peerConnection = new RTCPeerConnection(RTC_CONFIG);
 
-    // Add local tracks
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => {
         this.peerConnection!.addTrack(track, this.localStream!);
       });
     }
 
-    // Handle remote stream
     this.peerConnection.ontrack = (event) => {
       if (event.streams && event.streams[0]) {
         console.log("Received Remote Stream");
         this.onRemoteStream(event.streams[0]);
-        // Signal the UI that we are fully connected
         this.onConnect();
       }
     };
 
-    // Handle ICE Candidates
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
         this.socket.emit('signal', { type: 'ice-candidate', payload: event.candidate });
@@ -164,6 +161,10 @@ class WebRTCService {
 
   public sendMessage(text: string) {
     this.socket.emit('chat-message', text);
+  }
+
+  public sendEmoji(emoji: string) {
+    this.socket.emit('emoji', emoji);
   }
 
   public destroy() {
@@ -195,9 +196,7 @@ export default function App() {
   const [showChatMobile, setShowChatMobile] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  // Check for Prod config errors
   useEffect(() => {
-    // Safe access
     const backendUrl = import.meta.env?.VITE_BACKEND_URL;
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     
@@ -206,12 +205,10 @@ export default function App() {
     }
   }, []);
 
-  // Form handling
   const { control, handleSubmit } = useForm<UserSettings>({
     defaultValues: { myGender: 'male', preference: 'anyone' }
   });
 
-  // Online count simulation
   useEffect(() => {
     const interval = setInterval(() => {
       dispatch(updateOnlineCount());
@@ -219,7 +216,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [dispatch]);
 
-  // Start Camera on Load
   useEffect(() => {
     const startCamera = async () => {
       try {
@@ -237,9 +233,6 @@ export default function App() {
     startCamera();
   }, []); 
 
-  // --- VIDEO STREAM ATTACHMENT LOGIC ---
-  
-  // Attach LOCAL stream whenever video element is available (e.g. status changes to CONNECTED)
   useEffect(() => {
     if (localVideoRef.current && stream) {
         console.log("Attaching local stream to video element");
@@ -248,7 +241,6 @@ export default function App() {
     }
   }, [stream, status]);
 
-  // Attach REMOTE stream whenever available
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
         console.log("Attaching remote stream to video element");
@@ -256,8 +248,21 @@ export default function App() {
     }
   }, [remoteStream, status]);
 
+  const showEmoji = (char: string) => {
+    const id = Date.now() + Math.random();
+    setFloatingEmojis(prev => [...prev, { id, char, left: Math.random() * 80 + 10 }]);
+    setTimeout(() => {
+        setFloatingEmojis(prev => prev.filter(e => e.id !== id));
+    }, 2000);
+  };
 
-  // Handle connection
+  const sendEmoji = (emoji: string) => {
+    showEmoji(emoji);
+    if (rtcServiceRef.current) {
+        rtcServiceRef.current.sendEmoji(emoji);
+    }
+  };
+
   const connectToStranger = useCallback((currentSettings: UserSettings) => {
     if (!stream) {
       alert("Waiting for camera...");
@@ -265,15 +270,13 @@ export default function App() {
     }
 
     setConnectionError(null);
-    setRemoteStream(null); // Clear previous remote stream
+    setRemoteStream(null);
     dispatch(setStatus(AppStatus.SEARCHING));
     
-    // Cleanup old service
     if (rtcServiceRef.current) rtcServiceRef.current.destroy();
 
     const service = new WebRTCService(
         stream,
-        // On Message
         (text) => {
             dispatch(addMessage({ 
                 id: Date.now().toString(), 
@@ -282,25 +285,29 @@ export default function App() {
                 timestamp: Date.now() 
             }));
         },
-        // On Remote Stream
         (newRemoteStream) => {
-            // Update state so React can attach it in useEffect
             setRemoteStream(newRemoteStream);
         },
-        // On Disconnect
         () => {
-             dispatch(setStatus(AppStatus.IDLE));
+             dispatch(setStatus(AppStatus.SEARCHING));
              setRemoteStream(null);
+             dispatch(clearMessages());
+             setTimeout(() => {
+                 if (rtcServiceRef.current && currentSettings) {
+                     rtcServiceRef.current.joinQueue(currentSettings);
+                 }
+             }, 500);
         },
-        // On Connect (Video Established)
         () => {
              dispatch(setStatus(AppStatus.CONNECTED));
              dispatch(clearMessages());
         },
-        // On Socket Error
         (errorMsg) => {
             setConnectionError(errorMsg);
             dispatch(setStatus(AppStatus.IDLE));
+        },
+        (emoji) => {
+            showEmoji(emoji);
         }
     );
     
@@ -330,25 +337,21 @@ export default function App() {
           if (settings) {
               connectToStranger(settings);
           }
-      }, 500); // Small delay to ensure socket cleanup
+      }, 500);
   }, [disconnect, connectToStranger, settings]);
 
   const onStart = (data: UserSettings) => {
     setSettings(data);
     connectToStranger(data);
   };
-  
-  const showEmoji = (char: string) => {
-    const id = Date.now();
-    setFloatingEmojis(prev => [...prev, { id, char, left: Math.random() * 80 + 10 }]);
-    setTimeout(() => {
-        setFloatingEmojis(prev => prev.filter(e => e.id !== id));
-    }, 2000);
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSubmit(onStart)(e);
   };
 
   return (
     <div className="h-[100dvh] w-screen bg-black text-white overflow-hidden flex flex-col">
-      {/* Header */}
       {status !== AppStatus.CONNECTED && (
         <header className="absolute top-0 left-0 right-0 p-6 z-20 flex justify-between items-center">
           <div className="flex items-baseline gap-1 select-none cursor-default group">
@@ -378,30 +381,18 @@ export default function App() {
         </header>
       )}
 
-      {/* CONFIG ERROR BANNER */}
       {connectionError && (
         <div className="absolute top-20 left-4 right-4 z-50 p-4 bg-red-500/90 backdrop-blur-md rounded-xl border border-red-400 text-white shadow-2xl animate-bounce">
           <div className="flex items-center gap-3">
-            <svg
-              className="w-6 h-6 shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
+            <svg className="w-6 h-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <div>
               <h3 className="font-bold">Connection Error</h3>
               <p className="text-sm opacity-90">{connectionError}</p>
               {connectionError.includes("VITE_BACKEND_URL") && (
                 <p className="text-xs mt-1 bg-black/20 p-2 rounded">
-                  Fix: Go to Netlify Settings &gt; Env Variables &gt; Add{" "}
-                  <code>VITE_BACKEND_URL</code> with your Render URL.
+                  Fix: Go to Netlify Settings &gt; Env Variables &gt; Add <code>VITE_BACKEND_URL</code> with your Render URL.
                 </p>
               )}
             </div>
@@ -410,7 +401,6 @@ export default function App() {
       )}
 
       <main className="relative z-10 w-full h-full flex flex-col">
-        {/* IDLE SCREEN */}
         {status === AppStatus.IDLE && (
           <div className="flex-1 flex flex-col items-center justify-center p-4 relative">
             <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
@@ -420,30 +410,19 @@ export default function App() {
 
             <GlassCard className="p-8 w-full max-w-sm space-y-6 bg-black/40 border-white/10 shadow-2xl backdrop-blur-xl relative z-10">
               <div className="text-center space-y-2">
-                <h2 className="text-3xl font-bold text-white tracking-tight">
-                  Start Chatting
-                </h2>
+                <h2 className="text-3xl font-bold text-white tracking-tight">Start Chatting</h2>
                 <p className="text-white/40 text-sm">
-                  <span className="block mb-2">
-                    Connect with real strangers.
-                  </span>
+                  <span className="block mb-2">Connect with real strangers.</span>
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit(onStart)} className="space-y-6">
+              <div className="space-y-6">
                 <div className="space-y-3">
-                  <label className="text-xs font-medium text-white/50 uppercase tracking-wider ml-1">
-                    I am
-                  </label>
+                  <label className="text-xs font-medium text-white/50 uppercase tracking-wider ml-1">I am</label>
                   <div className="grid grid-cols-2 gap-3">
                     {["male", "female"].map((g) => (
                       <label key={g} className="cursor-pointer group">
-                        <input
-                          type="radio"
-                          value={g}
-                          {...control.register("myGender")}
-                          className="peer sr-only"
-                        />
+                        <input type="radio" value={g} {...control.register("myGender")} className="peer sr-only" />
                         <div className="py-3 text-center rounded-xl border border-white/10 bg-white/5 peer-checked:bg-blue-600 peer-checked:border-transparent peer-checked:text-white text-white/60 transition-all group-hover:bg-white/10 capitalize">
                           {g}
                         </div>
@@ -453,18 +432,11 @@ export default function App() {
                 </div>
 
                 <div className="space-y-3">
-                  <label className="text-xs font-medium text-white/50 uppercase tracking-wider ml-1">
-                    Looking for
-                  </label>
+                  <label className="text-xs font-medium text-white/50 uppercase tracking-wider ml-1">Looking for</label>
                   <div className="flex bg-white/5 p-1 rounded-xl">
                     {["anyone", "male", "female"].map((pref) => (
                       <label key={pref} className="flex-1 cursor-pointer">
-                        <input
-                          type="radio"
-                          value={pref}
-                          {...control.register("preference")}
-                          className="peer sr-only"
-                        />
+                        <input type="radio" value={pref} {...control.register("preference")} className="peer sr-only" />
                         <div className="py-2 rounded-lg text-sm text-center text-white/40 peer-checked:bg-white/10 peer-checked:text-white peer-checked:shadow-sm transition-all capitalize">
                           {pref}
                         </div>
@@ -473,18 +445,14 @@ export default function App() {
                   </div>
                 </div>
 
-                <Button
-                  type="submit"
-                  className="w-full py-4 text-lg bg-blue-600 hover:bg-blue-500 border-none shadow-blue-900/50 shadow-lg"
-                >
+                <Button onClick={handleFormSubmit} className="w-full py-4 text-lg bg-blue-600 hover:bg-blue-500 border-none shadow-blue-900/50 shadow-lg">
                   Start Video Chat
                 </Button>
-              </form>
+              </div>
             </GlassCard>
           </div>
         )}
 
-        {/* SEARCHING SCREEN */}
         {status === AppStatus.SEARCHING && (
           <div className="flex-1 flex flex-col items-center justify-center bg-black/90 backdrop-blur-sm z-50">
             <div className="relative flex items-center justify-center">
@@ -494,135 +462,63 @@ export default function App() {
 
               <div className="z-10 text-center space-y-4">
                 <div className="w-16 h-16 border-4 border-t-transparent border-blue-500 rounded-full animate-spin mx-auto"></div>
-                <h2 className="text-xl font-medium text-white/80">
-                  Connecting...
-                </h2>
-                <p className="text-xs text-white/40">
-                  Waiting for someone to join the queue...
-                </p>
+                <h2 className="text-xl font-medium text-white/80">Connecting...</h2>
+                <p className="text-xs text-white/40">Waiting for someone to join the queue...</p>
               </div>
             </div>
             <div className="mt-12">
-              <Button
-                variant="ghost"
-                onClick={disconnect}
-                className="text-white/50 hover:text-white"
-              >
+              <Button variant="ghost" onClick={disconnect} className="text-white/50 hover:text-white">
                 Cancel
               </Button>
             </div>
           </div>
         )}
 
-        {/* CONNECTED VIDEO SCREEN */}
         {status === AppStatus.CONNECTED && (
           <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden bg-black relative">
-            {/* REMOTE VIDEO */}
             <div className="relative flex-1 bg-[#1a1a1a] flex items-center justify-center overflow-hidden border-b md:border-b-0 md:border-r border-white/10">
               <div className="w-full h-full relative flex items-center justify-center">
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover transform"
-                />
-                {/* Fallback/Loading state overlay could go here */}
+                <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover transform" />
               </div>
 
-              {/* Floating Emojis */}
               <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
                 {floatingEmojis.map((e) => (
-                  <div
-                    key={e.id}
-                    className="absolute bottom-0 text-5xl animate-[float_3s_ease-out_forwards] opacity-0"
-                    style={{ left: `${e.left}%` }}
-                  >
+                  <div key={e.id} className="absolute bottom-0 text-5xl animate-[float_3s_ease-out_forwards] opacity-0" style={{ left: `${e.left}%` }}>
                     {e.char}
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* LOCAL VIDEO */}
             <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted // Muted locally so you don't hear yourself
-                playsInline
-                className="w-full h-full object-cover transform scale-x-[-1]"
-              />
+              <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover transform scale-x-[-1]" />
 
               <div className="absolute bottom-6 left-0 right-0 flex justify-center items-center gap-4 z-50">
-                <button
-                  onClick={() => showEmoji("❤️")}
-                  className="p-3 bg-white/10 backdrop-blur-md rounded-full border border-white/20 hover:bg-white/20 hover:scale-110 transition-all"
-                >
+                <button onClick={() => sendEmoji("❤️")} className="p-3 bg-white/10 backdrop-blur-md rounded-full border border-white/20 hover:bg-white/20 hover:scale-110 transition-all">
                   ❤️
                 </button>
-                <button
-                  onClick={disconnect}
-                  className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-full shadow-lg hover:scale-105 transition-all"
-                >
+                <button onClick={disconnect} className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-full shadow-lg hover:scale-105 transition-all">
                   STOP
                 </button>
-                <button
-                  onClick={handleNext}
-                  className="px-8 py-3 bg-white text-black font-bold rounded-full shadow-lg hover:scale-105 transition-all"
-                >
+                <button onClick={handleNext} className="px-8 py-3 bg-white text-black font-bold rounded-full shadow-lg hover:scale-105 transition-all">
                   NEXT
                 </button>
-                <button
-                  onClick={() => showEmoji("😂")}
-                  className="p-3 bg-white/10 backdrop-blur-md rounded-full border border-white/20 hover:bg-white/20 hover:scale-110 transition-all"
-                >
+                <button onClick={() => sendEmoji("😂")} className="p-3 bg-white/10 backdrop-blur-md rounded-full border border-white/20 hover:bg-white/20 hover:scale-110 transition-all">
                   😂
                 </button>
               </div>
 
-              <button
-                className="md:hidden absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md rounded-full text-white/80 z-40"
-                onClick={() => setShowChatMobile(!showChatMobile)}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="w-6 h-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
-                  />
+              <button className="md:hidden absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md rounded-full text-white/80 z-40" onClick={() => setShowChatMobile(!showChatMobile)}>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
                 </svg>
               </button>
             </div>
 
-            {/* Chat Interface */}
-            <div
-              className={`
-                    absolute md:relative z-30
-                    ${
-                      showChatMobile
-                        ? "inset-0 bg-black/80"
-                        : "pointer-events-none inset-x-0 bottom-[100px] h-[30%]"
-                    }
-                    md:inset-auto md:w-[350px] md:h-full md:bg-[#111] md:border-l md:border-white/10 md:pointer-events-auto
-                    flex flex-col transition-all duration-300
-                `}
-            >
-              <ChatInterface
-                onSendMessage={handleSendMessage}
-                mobileMode={true}
-              />
+            <div className={`absolute md:relative z-30 ${showChatMobile ? "inset-0 bg-black/80" : "pointer-events-none inset-x-0 bottom-[100px] h-[30%]"} md:inset-auto md:w-[350px] md:h-full md:bg-[#111] md:border-l md:border-white/10 md:pointer-events-auto flex flex-col transition-all duration-300`}>
+              <ChatInterface onSendMessage={handleSendMessage} mobileMode={true} />
               {showChatMobile && (
-                <button
-                  onClick={() => setShowChatMobile(false)}
-                  className="md:hidden absolute top-4 right-4 text-white"
-                >
+                <button onClick={() => setShowChatMobile(false)} className="md:hidden absolute top-4 right-4 text-white">
                   ✕
                 </button>
               )}
@@ -630,11 +526,9 @@ export default function App() {
           </div>
         )}
       </main>
-      {/* Footer */}
+
       <footer className="w-full py-3 text-center text-white/30 text-xs bg-black/40 backdrop-blur-md border-t border-white/10">
-        © 2025{" "}
-        <span className="text-white/50 font-semibold">ChillMaCoding</span> —
-        just chilling 😎
+        © 2025 <span className="text-white/50 font-semibold">ChillMaCoding</span> — just chilling 😎
       </footer>
     </div>
   );
