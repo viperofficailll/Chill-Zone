@@ -1,0 +1,56 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Chill-Zone</title>
+    <!-- Keeping CDN for Tailwind to keep setup simple, though npm install is preferred for prod -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background: #000;
+        color: white;
+      }
+      /* Custom Scrollbar for Chat */
+      .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+      }
+      .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+      }
+      /* Animations */
+      @keyframes float {
+        0% { transform: translateY(0px) rotate(0deg); opacity: 0; }
+        20% { opacity: 1; }
+        100% { transform: translateY(-100px) rotate(20deg); opacity: 0; }
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "vitest": "https://aistudiocdn.com/vitest@^4.0.14",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "@tanstack/react-query": "https://aistudiocdn.com/@tanstack/react-query@^5.90.11",
+    "socket.io-client": "https://aistudiocdn.com/socket.io-client@^4.8.1",
+    "react-redux": "https://aistudiocdn.com/react-redux@^9.2.0",
+    "@testing-library/react": "https://aistudiocdn.com/@testing-library/react@^16.3.0",
+    "react-hook-form": "https://aistudiocdn.com/react-hook-form@^7.66.1",
+    "@reduxjs/toolkit": "https://aistudiocdn.com/@reduxjs/toolkit@^2.11.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

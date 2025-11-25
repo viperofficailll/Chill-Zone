@@ -1,0 +1,8 @@
+{
+  "name": "Copy of Chill-Zone",
+  "description": "A premium, glass-morphic video chat application connecting you with AI personas in a simulated Omegle-like experience.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
